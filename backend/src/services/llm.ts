@@ -63,6 +63,58 @@ function hasChildren(preferences: Record<string, unknown> | null | undefined): b
   return Boolean(travelers?.children && travelers.children > 0);
 }
 
+interface ArrivalPreference {
+  method?: "flight" | "train" | "car";
+  /** Specific airport (e.g. "Beauvais (BVA)") when method is "flight" — a city can have several serving different airlines. */
+  airport?: string;
+}
+
+function getArrival(preferences: Record<string, unknown> | null | undefined): ArrivalPreference {
+  return (preferences as { arrival?: ArrivalPreference } | null | undefined)?.arrival ?? {};
+}
+
+function arrivalTransportDetails(
+  arrival: ArrivalPreference,
+  destination: string
+): { title: string; description: string; locationName?: string } {
+  if (arrival.method === "train") {
+    return {
+      title: `Arrival in ${destination} by train`,
+      description: "Train arrival; transfer to accommodation.",
+      locationName: `${destination} main train station`,
+    };
+  }
+  if (arrival.method === "car") {
+    return { title: `Arrival in ${destination} by car`, description: "Drive in and head to accommodation." };
+  }
+  return {
+    title: arrival.airport ? `Arrival at ${arrival.airport}` : `Arrival in ${destination}`,
+    description: "Airport transfer to accommodation.",
+    locationName: arrival.airport ?? `${destination} International Airport`,
+  };
+}
+
+function departureTransportDetails(
+  arrival: ArrivalPreference,
+  destination: string
+): { title: string; description: string; locationName?: string } {
+  if (arrival.method === "train") {
+    return {
+      title: `Departure from ${destination} by train`,
+      description: "Transfer to the train station for departure.",
+      locationName: `${destination} main train station`,
+    };
+  }
+  if (arrival.method === "car") {
+    return { title: `Departure from ${destination} by car`, description: "Drive out to head home." };
+  }
+  return {
+    title: arrival.airport ? `Departure from ${arrival.airport}` : `Departure from ${destination}`,
+    description: "Transfer to the airport for departure.",
+    locationName: arrival.airport ?? `${destination} International Airport`,
+  };
+}
+
 function pickActivities(preferences: Record<string, unknown> | null | undefined, count: number): string[] {
   const interests = Array.isArray((preferences as { interests?: unknown })?.interests)
     ? ((preferences as { interests: unknown[] }).interests.filter((i) => typeof i === "string") as string[])
@@ -127,9 +179,7 @@ export const mockLlmService: LlmService = {
         if (isFirstDayOfTrip) {
           pushEvent({
             eventType: "TRANSPORT",
-            title: `Arrival in ${destination}`,
-            description: "Airport/station transfer to accommodation.",
-            locationName: `${destination} International Airport`,
+            ...arrivalTransportDetails(getArrival(preferences), destination),
             startTime: atTime(day, 10, 0),
             endTime: atTime(day, 11, 30),
           });
@@ -225,9 +275,7 @@ export const mockLlmService: LlmService = {
           });
           pushEvent({
             eventType: "TRANSPORT",
-            title: `Departure from ${destination}`,
-            description: "Transfer to airport/station for departure.",
-            locationName: `${destination} International Airport`,
+            ...departureTransportDetails(getArrival(preferences), destination),
             startTime: atTime(day, 17, 0),
             endTime: atTime(day, 18, 30),
           });
@@ -356,11 +404,37 @@ export const openAiLlmService: LlmService = {
       ? `This is a multi-destination trip covering, in order: ${destinations.join(" → ")}. Split the ${days.length} available day(s) across these destinations sensibly (doesn't need to be exactly equal — a more significant destination can get more days), covering every day with no gaps and no overlap. Include one TRANSPORT event for arrival into ${destinations[0]} on the first day, one TRANSPORT event moving between each consecutive pair of destinations (on the day of transition, titled e.g. "Travel from X to Y"), and one TRANSPORT event for final departure from ${destinations[destinations.length - 1]} on the last day. Include an ACCOMMODATION check-in on the first day in each destination and an ACCOMMODATION check-out on the last day in each destination (a separate hotel per destination).`
       : "";
 
+    const arrival = getArrival(preferences);
+    const firstDestination = destinations[0];
+    const lastDestination = destinations[destinations.length - 1];
+    const sameCityRoundTrip = firstDestination === lastDestination;
+    let arrivalInstructions: string;
+    if (arrival.method === "train") {
+      arrivalInstructions = `The traveler is arriving into ${firstDestination} by train (e.g. a Eurostar/high-speed service if coming from another major city). The very first TRANSPORT event (arrival) should reflect a train arrival — "locationName" should be the real main train station in ${firstDestination} that serves that kind of service, not an airport. The final TRANSPORT event (departure, from ${lastDestination}) should likewise be a train departure${
+        sameCityRoundTrip
+          ? " from that exact same station — travelers overwhelmingly depart from the same station they arrived at on a round trip, don't switch to a different real station serving a different route without reason"
+          : " from the real main station there"
+      }.`;
+    } else if (arrival.method === "car") {
+      arrivalInstructions = `The traveler is arriving into ${firstDestination} by car. The very first TRANSPORT event (arrival) and the final TRANSPORT event (departure, from ${lastDestination}) should reflect arriving/leaving by car — no airport or train station "locationName" is needed for these two events (omit it or use something generic like a parking area near the accommodation).`;
+    } else {
+      const airportHint = arrival.airport
+        ? ` The traveler has already chosen to fly into "${arrival.airport}" specifically — use that exact name as "locationName" for the arrival TRANSPORT event, don't substitute a different airport.${
+            sameCityRoundTrip
+              ? ` Since departure is from the same city (${lastDestination}), also use "${arrival.airport}" for the final departure TRANSPORT event too — travelers overwhelmingly fly out of the same airport they flew into on a round trip, don't switch to a different one without reason.`
+              : ""
+          }`
+        : "";
+      arrivalInstructions = `The traveler is arriving into ${firstDestination} by flight.${airportHint} Note that a destination can have multiple airports served by different airlines (e.g. Paris has Charles de Gaulle (CDG) for most full-service carriers, Orly (ORY), and Beauvais (BVA) for some low-cost carriers like Ryanair) — for both the arrival TRANSPORT event (into ${firstDestination}) and the final departure TRANSPORT event (from ${lastDestination}), use a real, specific, correctly-named airport as "locationName"${arrival.airport ? "" : ", defaulting to the primary/major international airport for that city"} — never a generic placeholder like "City International Airport".`;
+    }
+
     const prompt = `Create a detailed day-by-day trip itinerary covering exactly these calendar days: ${days.join(", ")}.
 ${isMultiDestination ? `Destinations, in visiting order: ${destinations.join(", ")}.` : `Destination: ${destinations[0]}.`}
 Preferences: ${JSON.stringify(preferences ?? {})}.
 
 ${multiDestinationInstructions}
+
+${arrivalInstructions}
 
 ${hasChildrenTraveling
   ? `This trip includes ${travelers!.children} child(ren)${travelers?.childrenAges?.length ? ` (ages ${travelers.childrenAges.join(", ")})` : ""} alongside ${travelers?.adults ?? "the"} adult(s). Prioritize family-friendly activities suitable for those ages (parks, playgrounds, hands-on/interactive museums, shorter attraction visits); avoid activities unsuitable for children (e.g. late-night venues, very long queues/tours, adults-only experiences) unless the preferences explicitly ask for them. Keep daily pacing realistic for a family with kids (fewer, shorter activities rather than a packed schedule).`

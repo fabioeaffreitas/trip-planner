@@ -121,4 +121,54 @@ describe("mockLlmService.generateItinerary", () => {
     expect(parisActivity).toBeDefined();
     expect(romeActivity).toBeDefined();
   });
+
+  it("uses the specified arrival airport for the arrival and departure TRANSPORT events", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Paris"],
+      startDate: new Date("2026-09-01"),
+      endDate: new Date("2026-09-02"),
+      preferences: { arrival: { method: "flight", airport: "Beauvais (BVA)" } },
+    });
+
+    const transport = events.filter((e) => e.eventType === "TRANSPORT");
+    expect(transport.every((e) => e.locationName === "Beauvais (BVA)")).toBe(true);
+    expect(transport.some((e) => e.title.includes("Beauvais (BVA)"))).toBe(true);
+  });
+
+  it("reflects a train arrival/departure instead of an airport when specified", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Paris"],
+      startDate: new Date("2026-09-01"),
+      endDate: new Date("2026-09-02"),
+      preferences: { arrival: { method: "train" } },
+    });
+
+    const transport = events.filter((e) => e.eventType === "TRANSPORT");
+    expect(transport.every((e) => e.locationName === "Paris main train station")).toBe(true);
+    expect(transport.some((e) => e.title.toLowerCase().includes("train"))).toBe(true);
+  });
+
+  it("omits a specific location for car arrival/departure", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Paris"],
+      startDate: new Date("2026-09-01"),
+      endDate: new Date("2026-09-02"),
+      preferences: { arrival: { method: "car" } },
+    });
+
+    const transport = events.filter((e) => e.eventType === "TRANSPORT");
+    expect(transport.every((e) => e.locationName === undefined)).toBe(true);
+    expect(transport.some((e) => e.title.toLowerCase().includes("car"))).toBe(true);
+  });
+
+  it("falls back to a generic airport guess when no arrival preference is given", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Paris"],
+      startDate: new Date("2026-09-01"),
+      endDate: new Date("2026-09-02"),
+    });
+
+    const transport = events.filter((e) => e.eventType === "TRANSPORT");
+    expect(transport.every((e) => e.locationName === "Paris International Airport")).toBe(true);
+  });
 });

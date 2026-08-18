@@ -28,6 +28,8 @@ export default function NewTripPage() {
   const [adults, setAdults] = useState("2");
   const [children, setChildren] = useState("0");
   const [childrenAges, setChildrenAges] = useState("");
+  const [arrivalMethod, setArrivalMethod] = useState<"flight" | "train" | "car">("flight");
+  const [arrivalAirport, setArrivalAirport] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const todayStr = todayDateString();
@@ -81,6 +83,10 @@ export default function NewTripPage() {
           preferences: {
             budget: budget || undefined,
             interests,
+            arrival: {
+              method: arrivalMethod,
+              airport: arrivalMethod === "flight" && arrivalAirport.trim() ? arrivalAirport.trim() : undefined,
+            },
             travelers: {
               adults: Number(adults) || 1,
               children: numChildren,
@@ -180,6 +186,31 @@ export default function NewTripPage() {
             onChange={(e) => setEndDate(e.target.value)}
           />
         </div>
+
+        <div className="field">
+          <label htmlFor="arrivalMethod">Arriving by</label>
+          <select
+            id="arrivalMethod"
+            value={arrivalMethod}
+            onChange={(e) => setArrivalMethod(e.target.value as "flight" | "train" | "car")}
+          >
+            <option value="flight">Flight</option>
+            <option value="train">Train</option>
+            <option value="car">Car</option>
+          </select>
+        </div>
+
+        {arrivalMethod === "flight" && (
+          <div className="field">
+            <label htmlFor="arrivalAirport">Arrival airport (optional)</label>
+            <input
+              id="arrivalAirport"
+              value={arrivalAirport}
+              onChange={(e) => setArrivalAirport(e.target.value)}
+              placeholder="e.g. CDG, or Beauvais (BVA) — leave blank to let the planner pick"
+            />
+          </div>
+        )}
 
         <div className="field">
           <label htmlFor="adults">Adults</label>
