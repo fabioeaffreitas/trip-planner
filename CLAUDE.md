@@ -12,6 +12,15 @@ Two independent npm projects, no monorepo tooling:
 
 This directory (`Trip_Planner/`) is unrelated to the sibling `gemini_course/` workspace one level up — different stack, different purpose, no shared code.
 
+## Deployment
+
+Deployed on [Railway](https://railway.com) — project `trip-planner`, three services in one project:
+- **Postgres** — managed database plugin.
+- **backend** — deployed via `railway up ./backend --path-as-root --service backend` from the repo root (not GitHub-auto-deploy; redeploy by re-running that command, or `railway redeploy --service backend --yes` to restart the existing image after a variable change). `DATABASE_URL=${{Postgres.DATABASE_URL}}` (Railway variable reference), plus `JWT_SECRET`, `USE_MOCKS=false`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `GOOGLE_PLACES_API_KEY`, `CORS_ORIGIN` (the frontend's Railway domain) set via `railway variable set`. No `TRIPADVISOR_API_KEY` set in production — TripAdvisor grounding degrades gracefully to "none provided" (see below), same as local dev without a key.
+- **frontend** — deployed the same way from `./frontend`. `NEXT_PUBLIC_API_URL` set to the backend's Railway domain + `/api` — this must be set *before* deploying, since Next.js inlines `NEXT_PUBLIC_*` vars at build time, not runtime.
+
+Both services got public domains via `railway domain --service <name>`. Changing a variable on a service that was deployed via `railway up` (rather than a connected GitHub branch) does **not** reliably auto-redeploy — after changing `CORS_ORIGIN` we had to explicitly run `railway redeploy --service backend --yes` to pick it up.
+
 ## Commands
 
 **First-time setup:**
@@ -32,7 +41,7 @@ Or run them separately with `npm run dev` inside `backend/` and `frontend/`.
 
 **Backend** (`cd backend`):
 - `npm run dev` — start with hot reload (`tsx watch`)
-- `npm run build` / `npm start` — compile to `dist/` and run
+- `npm run build` / `npm start` — compile to `dist/` and run. **Build uses `tsconfig.build.json`, not `tsconfig.json`** — the base config has `rootDir: "."` with `include: ["src", "prisma", "tests"]` (needed so `npm run typecheck` covers all three), which makes plain `tsc` emit `dist/src/index.js` instead of `dist/index.js`. `tsconfig.build.json` overrides `rootDir`/`include` to just `src`, so `dist/index.js` (what `start` actually runs) exists where expected. This is a real bug we hit deploying to Railway — don't "simplify" by pointing `build` back at `tsconfig.json`. `start` also runs `npm run build` itself (not just `prisma migrate deploy && node dist/index.js`) as a defense against a Railpack layer-caching quirk where a separately-cached build step's output didn't reliably carry into the runtime image — building again immediately before `node dist/index.js` runs guarantees the file exists in the same filesystem that reads it.
 - `npm run typecheck` — `tsc --noEmit`
 - `npm test` — run all unit tests (Vitest); `npx vitest run tests/llm.test.ts` for a single file
 - `npx prisma migrate dev --name <name>` — create/apply a migration after editing `prisma/schema.prisma`
@@ -65,8 +74,10 @@ Unlike Places (which validates/enriches the LLM's output *after* generation), Tr
 
 **Critical:** every `GeneratedEvent` carries a `destination` field naming which of the trip's destinations it belongs to (mock: set directly from the block it was generated in; real: the OpenAI prompt requires it on every event, verbatim from the given list, resolved/fuzzy-matched back via `resolveDestination()` in case the model paraphrases it slightly). `trips.service.ts` uses **that specific destination** — not a guess-across-all-destinations — for `placesService.validateLocation()`'s search context and bias. This was a real, confirmed bug during development: an earlier version tried each destination in turn and accepted the first "nearby" match, which let a Rome-context search for "the Colosseum" match Paris's own Roman arena ("Arènes de Lutèce") because it was a plausible nearby result in the wrong city. If you touch multi-destination generation, preserve the per-event `destination` tag — removing it silently reintroduces that bug.
 
-### Trip creation is synchronous, not queued
-`createTrip()` in `src/services/trips.service.ts` inserts the trip as `GENERATING`, fetches TripAdvisor candidates, calls `llmService.generateItinerary()`, validates each event's location via `placesService.validateLocation()` and matches it against the TripAdvisor candidates, bulk-inserts events, then marks the trip `READY` (or `FAILED` on error) — all inline within the `POST /api/trips` request. This was originally chosen because the mocked calls have no real latency; now that real OpenAI/Google Places/TripAdvisor calls (with real latency, and TripAdvisor in particular making several sequential-ish API calls) are wired in behind `USE_MOCKS=false`, consider switching this to fire-and-forget + a 202 response — the frontend's trip-detail page already polls `GET /api/trips/:id` while status is `GENERATING`, so that part needs no change.
+### Trip creation is fire-and-forget, not awaited in the request
+`createTrip()` in `src/services/trips.service.ts` inserts the trip as `GENERATING` and returns immediately; the actual work (fetch TripAdvisor candidates, call `llmService.generateItinerary()`, validate/match each event's location, bulk-insert events, mark `READY`/`FAILED`) runs in `generateItineraryForTrip()`, called without `await` and with its own top-level `.catch()` as a last-resort safety net (the function already catches internally and marks the trip `FAILED` on error; the outer `.catch()` only guards against something escaping that, e.g. a bug in the catch block itself).
+
+**This was originally awaited inline and had to be changed** — confirmed in production on Railway: with real OpenAI/Google Places/TripAdvisor calls in the loop (routinely 20-40s+ for a multi-day itinerary), the platform's reverse-proxy timeout killed the request before it finished, leaving the trip stuck in `GENERATING` forever with no way to retry. `POST /api/trips` now responds in well under a second regardless of how long generation takes. The frontend's trip-detail page already polled `GET /api/trips/:id` while status is `GENERATING` (built in from the start, anticipating exactly this), so no frontend change was needed.
 
 ### Data model
 `prisma/schema.prisma` — `User` → `Trip` → `ItineraryEvent` (cascade delete). `Trip.status`: `GENERATING` | `READY` | `FAILED`. `ItineraryEvent.eventType`: `ACCOMMODATION` | `DINING` | `TRANSPORT` | `ACTIVITY` | `TIP`. Location is stored as separate nullable `locationLat`/`locationLng` floats (not a Postgres point type — simpler, sufficient for map pins). `estimatedPriceLabel` (LLM-estimated, `ACTIVITY` only, always non-authoritative) and `bookingUrl` (a `getyourguide.com` search link, `ACTIVITY`-only) are set at generation time in `trips.service.ts`. `tripAdvisorRating`/`tripAdvisorReviewCount`/`tripAdvisorPriceLevel`/`tripAdvisorUrl` (DINING and ACTIVITY, real data when matched to a candidate) are set the same way.

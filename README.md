@@ -1,5 +1,15 @@
 # Trip Planner — Phase 1 Local Web MVP
 
+![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=next.js&logoColor=white)
+![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-5-2D3748?logo=prisma&logoColor=white)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Railway-0B0D0E?logo=railway&logoColor=white)](https://frontend-production-242d.up.railway.app)
+
+**Live demo:** https://frontend-production-242d.up.railway.app (deployed on [Railway](https://railway.com) — see `CLAUDE.md` → "Deployment" for the setup)
+
 An AI-itinerary trip planner. This is the **Phase 1 Local Web MVP** scope only: create a trip, get a generated itinerary, view it grouped by day, edit an event's time. Payments (Stripe), WhatsApp notifications (Twilio/BullMQ), and the React Native mobile app are **not implemented** — see "Out of scope" below.
 
 ## Stack

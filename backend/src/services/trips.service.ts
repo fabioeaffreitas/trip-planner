@@ -24,11 +24,16 @@ export interface CreateTripInput {
 }
 
 /**
- * Creates the trip row and runs generation inline (see plan: mocked LLM/Places
- * calls have no real latency today, so a queue would add complexity with no
- * payoff). If real API calls are wired in later and add latency, this function
- * can be called fire-and-forget from the controller instead — the GENERATING
- * status and the frontend's polling already support that.
+ * Creates the trip row as GENERATING and returns immediately — generation
+ * itself runs fire-and-forget via generateItineraryForTrip(). This used to
+ * run inline/awaited, back when only mocked calls were involved and had no
+ * real latency; once real OpenAI/Places/TripAdvisor calls were wired in
+ * (routinely 20-40s+ for a multi-day itinerary), that started exceeding
+ * hosting-platform reverse-proxy timeouts (confirmed in production on
+ * Railway: a synchronous request got killed mid-flight by the edge proxy
+ * and the trip was left stuck in GENERATING forever). The frontend already
+ * polls GET /api/trips/:id while status is GENERATING, so decoupling
+ * generation from the request/response cycle needed no frontend change.
  */
 export async function createTrip(userId: string, input: CreateTripInput): Promise<Trip> {
   const trip = await prisma.trip.create({
@@ -42,6 +47,14 @@ export async function createTrip(userId: string, input: CreateTripInput): Promis
     },
   });
 
+  generateItineraryForTrip(trip, input).catch((err) => {
+    console.error(`Unhandled error generating itinerary for trip ${trip.id}:`, err);
+  });
+
+  return trip;
+}
+
+async function generateItineraryForTrip(trip: Trip, input: CreateTripInput): Promise<void> {
   try {
     const budget = (input.preferences as { budget?: unknown } | null | undefined)?.budget;
     // TripAdvisor grounding is an enhancement, not a hard requirement — if it's
@@ -144,10 +157,10 @@ export async function createTrip(userId: string, input: CreateTripInput): Promis
 
     await prisma.itineraryEvent.createMany({ data: withCoords });
 
-    return await prisma.trip.update({ where: { id: trip.id }, data: { status: "READY" } });
+    await prisma.trip.update({ where: { id: trip.id }, data: { status: "READY" } });
   } catch (err) {
     console.error(`Itinerary generation failed for trip ${trip.id}:`, err);
-    return await prisma.trip.update({ where: { id: trip.id }, data: { status: "FAILED" } });
+    await prisma.trip.update({ where: { id: trip.id }, data: { status: "FAILED" } });
   }
 }
 
