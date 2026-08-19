@@ -18,9 +18,15 @@ const defaultIcon = L.icon({
   shadowSize: [41, 41],
 });
 
-function formatTime(value?: string | null): string {
+function formatDateTime(value?: string | null): string {
   if (!value) return "";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function TripMap({ events }: { events: ItineraryEvent[] }) {
@@ -50,7 +56,7 @@ export default function TripMap({ events }: { events: ItineraryEvent[] }) {
             <strong>{event.title}</strong>
             <br />
             {event.eventType}
-            {event.startTime ? ` · ${formatTime(event.startTime)}` : ""}
+            {event.startTime ? ` · ${formatDateTime(event.startTime)}` : ""}
             {event.locationName ? <><br />{event.locationName}</> : null}
           </Popup>
         </Marker>

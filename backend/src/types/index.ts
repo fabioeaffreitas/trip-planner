@@ -30,6 +30,8 @@ export interface ItineraryInput {
   restaurantCandidatesByDestination?: Record<string, TripAdvisorCandidate[]>;
   /** Real, budget-filtered, top-rated attractions from TripAdvisor, keyed by destination — the LLM should prefer these for ACTIVITY events in that destination. */
   attractionCandidatesByDestination?: Record<string, TripAdvisorCandidate[]>;
+  /** Real, budget-filtered, top-rated hotels from TripAdvisor, keyed by destination — the LLM should prefer these for ACCOMMODATION events in that destination. */
+  hotelCandidatesByDestination?: Record<string, TripAdvisorCandidate[]>;
 }
 
 export interface GeneratedEvent {

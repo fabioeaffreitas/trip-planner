@@ -74,6 +74,8 @@ model ItineraryEvent {
   tripAdvisorReviewCount Int?    @map("trip_advisor_review_count")
   tripAdvisorPriceLevel  String? @map("trip_advisor_price_level")
   tripAdvisorUrl         String? @map("trip_advisor_url")
+  notes                  String? @map("notes")
+  alternatives           Json?   @map("alternatives")
 
   @@index([tripId])
   @@map("itinerary_events")

@@ -66,6 +66,49 @@ describe("mockLlmService.generateItinerary", () => {
     expect(activities.every((e) => e.locationName === "Candidate Museum")).toBe(true);
   });
 
+  it("uses the same real hotel candidate for both check-in and check-out when provided", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Berlin"],
+      startDate: new Date("2026-12-01"),
+      endDate: new Date("2026-12-03"),
+      hotelCandidatesByDestination: {
+        Berlin: [
+          { name: "Top Berlin Hotel", rating: 4.8 },
+          { name: "Second Choice Hotel", rating: 4.5 },
+        ],
+      },
+    });
+
+    const accommodation = events.filter((e) => e.eventType === "ACCOMMODATION");
+    expect(accommodation.length).toBe(2);
+    expect(accommodation.every((e) => e.locationName === "Top Berlin Hotel")).toBe(true);
+    expect(accommodation.some((e) => e.title.includes("Top Berlin Hotel"))).toBe(true);
+  });
+
+  it("falls back to a generic hotel placeholder when no hotel candidates are provided", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Nowhereville"],
+      startDate: new Date("2026-12-01"),
+      endDate: new Date("2026-12-01"),
+    });
+
+    const accommodation = events.filter((e) => e.eventType === "ACCOMMODATION");
+    expect(accommodation.every((e) => e.locationName === "Central Nowhereville Hotel")).toBe(true);
+  });
+
+  it("uses interest-based activity titles when no TripAdvisor candidates are provided", async () => {
+    const events = await mockLlmService.generateItinerary({
+      destinations: ["Nowhereville"],
+      startDate: new Date("2026-08-01"),
+      endDate: new Date("2026-08-01"),
+      preferences: { interests: ["sports"] },
+    });
+
+    const activities = events.filter((e) => e.eventType === "ACTIVITY");
+    const sportsKeywords = ["sports match", "cycling", "stadium", "watersports"];
+    expect(activities.some((e) => sportsKeywords.some((k) => e.title.toLowerCase().includes(k)))).toBe(true);
+  });
+
   it("favors family-friendly activities and adds a kids tip when children are traveling", async () => {
     const withKids = await mockLlmService.generateItinerary({
       destinations: ["Lisbon"],

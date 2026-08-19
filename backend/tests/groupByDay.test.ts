@@ -22,6 +22,8 @@ function makeEvent(overrides: Partial<ItineraryEvent>): ItineraryEvent {
     tripAdvisorReviewCount: null,
     tripAdvisorPriceLevel: null,
     tripAdvisorUrl: null,
+    notes: null,
+    alternatives: null,
     ...overrides,
   };
 }

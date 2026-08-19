@@ -8,6 +8,7 @@ const updateEventSchema = z.object({
   locationName: z.string().optional(),
   startTime: z.coerce.date().optional(),
   endTime: z.coerce.date().optional(),
+  notes: z.string().optional(),
 });
 
 export async function putEvent(req: Request, res: Response) {

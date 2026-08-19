@@ -1,7 +1,7 @@
 import type { TripAdvisorCandidate } from "../types";
 import { budgetToPriceLevels } from "../utils/budget";
 
-export type TripAdvisorCategory = "restaurants" | "attractions";
+export type TripAdvisorCategory = "restaurants" | "attractions" | "hotels";
 
 export interface SearchTopRatedParams {
   destination: string;
@@ -47,17 +47,14 @@ const MOCK_ATTRACTIONS: Record<string, MockPlace[]> = {
   ],
 };
 
-const DEFAULT_RESTAURANTS: MockPlace[] = [
-  { name: "The Local Bistro", rating: 4.5, numReviews: 1200, priceLevel: "$$" },
-  { name: "Riverside Grill", rating: 4.3, numReviews: 900, priceLevel: "$$" },
-  { name: "Old Town Tavern", rating: 4.2, numReviews: 700, priceLevel: "$" },
-];
-
-const DEFAULT_ATTRACTIONS: MockPlace[] = [
-  { name: "City History Museum", rating: 4.4, numReviews: 5000, priceLevel: "$" },
-  { name: "Old Town Walking Tour", rating: 4.5, numReviews: 2200, priceLevel: "$" },
-  { name: "Central Cathedral", rating: 4.3, numReviews: 8000, priceLevel: "$" },
-];
+const MOCK_HOTELS: Record<string, MockPlace[]> = {
+  paris: [
+    { name: "Hôtel Plaza Athénée", rating: 4.8, numReviews: 4200, priceLevel: "$$$$" },
+    { name: "Le Marais Boutique Hotel", rating: 4.5, numReviews: 2100, priceLevel: "$$$" },
+    { name: "Hôtel des Grands Boulevards", rating: 4.4, numReviews: 1600, priceLevel: "$$" },
+    { name: "Generator Paris", rating: 4.1, numReviews: 5300, priceLevel: "$" },
+  ],
+};
 
 function filterAndRank(places: MockPlace[], budget: unknown, limit: number): TripAdvisorCandidate[] {
   const allowedPriceLevels = budgetToPriceLevels(budget);
@@ -80,10 +77,20 @@ function filterAndRank(places: MockPlace[], budget: unknown, limit: number): Tri
  */
 export const mockTripAdvisorService: TripAdvisorService = {
   async searchTopRated({ destination, category, budget, limit = 8 }): Promise<TripAdvisorCandidate[]> {
-    const key = destination.trim().toLowerCase();
-    const table = category === "restaurants" ? MOCK_RESTAURANTS : MOCK_ATTRACTIONS;
-    const fallback = category === "restaurants" ? DEFAULT_RESTAURANTS : DEFAULT_ATTRACTIONS;
-    return filterAndRank(table[key] ?? fallback, budget, limit);
+    // Match on the city name only (before the first comma) — the app's
+    // destination autocomplete produces values like "Paris, France", which
+    // wouldn't hit a "paris" table key on an exact match.
+    const key = destination.split(",")[0].trim().toLowerCase();
+    const table = category === "restaurants" ? MOCK_RESTAURANTS : category === "hotels" ? MOCK_HOTELS : MOCK_ATTRACTIONS;
+    const places = table[key];
+    // No generic filler fallback: a destination without curated mock data
+    // returns no candidates, rather than a fake "real" match. Filler entries
+    // (e.g. "City History Museum") aren't actually better than an
+    // interest-based pick, but would unconditionally override one anyway
+    // (see llm.ts's `candidate?.name ?? title`) — silencing the interest
+    // system for every destination except the few hardcoded here.
+    if (!places) return [];
+    return filterAndRank(places, budget, limit);
   },
 };
 

@@ -7,7 +7,7 @@ import { useRequireAuth } from "@/lib/auth";
 import type { Trip } from "@/lib/types";
 import DestinationAutocompleteInput from "./DestinationAutocompleteInput";
 
-const INTEREST_OPTIONS = ["food", "history", "art", "nature", "nightlife"];
+const INTEREST_OPTIONS = ["food", "history", "art", "nature", "nightlife", "sports"];
 
 function todayDateString(): string {
   const d = new Date();

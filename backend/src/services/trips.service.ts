@@ -5,7 +5,7 @@ import { placesService } from "./places";
 import { tripAdvisorService } from "./tripAdvisor";
 import type { GeoPoint, TripAdvisorCandidate } from "../types";
 import { groupByDay } from "../utils/groupByDay";
-import { buildGetYourGuideSearchUrl } from "../utils/bookingLink";
+import { buildGetYourGuideSearchUrl, buildBookingComSearchUrl } from "../utils/bookingLink";
 import { buildTripAdvisorSearchUrl } from "../utils/tripAdvisorLink";
 import { AppError } from "../utils/errors";
 
@@ -63,9 +63,10 @@ async function generateItineraryForTrip(trip: Trip, input: CreateTripInput): Pro
     // the LLM already knows to use its own knowledge when none are provided.
     const restaurantCandidatesByDestination: Record<string, TripAdvisorCandidate[]> = {};
     const attractionCandidatesByDestination: Record<string, TripAdvisorCandidate[]> = {};
+    const hotelCandidatesByDestination: Record<string, TripAdvisorCandidate[]> = {};
     await Promise.all(
       input.destinations.map(async (destination) => {
-        const [restaurants, attractions] = await Promise.all([
+        const [restaurants, attractions, hotels] = await Promise.all([
           tripAdvisorService.searchTopRated({ destination, category: "restaurants", budget }).catch((err) => {
             console.warn(`TripAdvisor restaurant lookup failed for "${destination}":`, err);
             return [];
@@ -74,9 +75,14 @@ async function generateItineraryForTrip(trip: Trip, input: CreateTripInput): Pro
             console.warn(`TripAdvisor attraction lookup failed for "${destination}":`, err);
             return [];
           }),
+          tripAdvisorService.searchTopRated({ destination, category: "hotels", budget }).catch((err) => {
+            console.warn(`TripAdvisor hotel lookup failed for "${destination}":`, err);
+            return [];
+          }),
         ]);
         restaurantCandidatesByDestination[destination] = restaurants;
         attractionCandidatesByDestination[destination] = attractions;
+        hotelCandidatesByDestination[destination] = hotels;
       })
     );
 
@@ -87,6 +93,7 @@ async function generateItineraryForTrip(trip: Trip, input: CreateTripInput): Pro
       preferences: input.preferences,
       restaurantCandidatesByDestination,
       attractionCandidatesByDestination,
+      hotelCandidatesByDestination,
     });
 
     // Geocode every destination once, so each event lookup can be biased
@@ -116,21 +123,34 @@ async function generateItineraryForTrip(trip: Trip, input: CreateTripInput): Pro
           eventDestination,
           destinationCoords[eventDestination] ?? undefined
         );
-        const bookingUrl =
-          event.eventType === "ACTIVITY"
-            ? buildGetYourGuideSearchUrl(`${event.locationName ?? event.title} ${eventDestination}`)
-            : undefined;
+        let bookingUrl: string | undefined;
+        if (event.eventType === "ACTIVITY") {
+          bookingUrl = buildGetYourGuideSearchUrl(`${event.locationName ?? event.title} ${eventDestination}`);
+        } else if (event.eventType === "ACCOMMODATION") {
+          bookingUrl = buildBookingComSearchUrl(`${event.locationName ?? event.title} ${eventDestination}`);
+        }
 
         let tripAdvisorMatch: TripAdvisorCandidate | undefined;
+        let alternatives: TripAdvisorCandidate[] | undefined;
         if (event.eventType === "DINING") {
-          tripAdvisorMatch = findCandidate(restaurantCandidatesByDestination[eventDestination] ?? [], event.locationName);
+          const restaurantCandidates = restaurantCandidatesByDestination[eventDestination] ?? [];
+          tripAdvisorMatch = findCandidate(restaurantCandidates, event.locationName);
+          // Offer the next-best-rated alternatives (already sorted by rating —
+          // see tripAdvisor.ts) instead of discarding them once one is chosen,
+          // so a diner who doesn't like the pick has a fallback close by.
+          const chosenName = (event.locationName ?? "").trim().toLowerCase();
+          alternatives = restaurantCandidates
+            .filter((c) => c.name.trim().toLowerCase() !== chosenName)
+            .slice(0, 2);
         } else if (event.eventType === "ACTIVITY") {
           tripAdvisorMatch = findCandidate(attractionCandidatesByDestination[eventDestination] ?? [], event.locationName);
+        } else if (event.eventType === "ACCOMMODATION") {
+          tripAdvisorMatch = findCandidate(hotelCandidatesByDestination[eventDestination] ?? [], event.locationName);
         }
 
         const tripAdvisorUrl =
           tripAdvisorMatch?.webUrl ??
-          (event.eventType === "DINING" || event.eventType === "ACTIVITY"
+          (event.eventType === "DINING" || event.eventType === "ACTIVITY" || event.eventType === "ACCOMMODATION"
             ? buildTripAdvisorSearchUrl(`${event.locationName ?? event.title} ${eventDestination}`)
             : undefined);
 
@@ -151,6 +171,7 @@ async function generateItineraryForTrip(trip: Trip, input: CreateTripInput): Pro
           tripAdvisorReviewCount: tripAdvisorMatch?.numReviews,
           tripAdvisorPriceLevel: tripAdvisorMatch?.priceLevel,
           tripAdvisorUrl,
+          alternatives: alternatives?.length ? (alternatives as unknown as Prisma.InputJsonValue) : undefined,
         };
       })
     );
@@ -192,6 +213,7 @@ export interface UpdateEventInput {
   locationName?: string;
   startTime?: Date;
   endTime?: Date;
+  notes?: string;
 }
 
 export async function updateEvent(userId: string, eventId: string, patch: UpdateEventInput) {

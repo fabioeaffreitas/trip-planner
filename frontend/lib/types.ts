@@ -30,6 +30,16 @@ export interface ItineraryEvent {
   tripAdvisorReviewCount?: number | null;
   tripAdvisorPriceLevel?: string | null;
   tripAdvisorUrl?: string | null;
+  notes?: string | null;
+  alternatives?: DiningAlternative[] | null;
+}
+
+export interface DiningAlternative {
+  name: string;
+  rating?: number;
+  numReviews?: number;
+  priceLevel?: string;
+  webUrl?: string;
 }
 
 export interface DestinationSuggestion {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, apiFetchBlob, ApiError } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import type { ItineraryEvent, TripDetail } from "@/lib/types";
 
@@ -26,10 +26,17 @@ function toDatetimeLocal(value?: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function EventCard({ event, onSave }: { event: ItineraryEvent; onSave: (id: string, startTime: string, endTime: string) => Promise<void> }) {
+function EventCard({
+  event,
+  onSave,
+}: {
+  event: ItineraryEvent;
+  onSave: (id: string, startTime: string, endTime: string, notes: string) => Promise<void>;
+}) {
   const [editing, setEditing] = useState(false);
   const [startTime, setStartTime] = useState(toDatetimeLocal(event.startTime));
   const [endTime, setEndTime] = useState(toDatetimeLocal(event.endTime));
+  const [notes, setNotes] = useState(event.notes ?? "");
   const [saving, setSaving] = useState(false);
 
   return (
@@ -56,7 +63,7 @@ function EventCard({ event, onSave }: { event: ItineraryEvent; onSave: (id: stri
         <div className="event-meta">
           {event.bookingUrl && (
             <a href={event.bookingUrl} target="_blank" rel="noopener noreferrer">
-              Book on GetYourGuide ↗
+              {event.eventType === "ACCOMMODATION" ? "Book on Booking.com ↗" : "Book on GetYourGuide ↗"}
             </a>
           )}
           {event.bookingUrl && event.tripAdvisorUrl && " · "}
@@ -67,13 +74,34 @@ function EventCard({ event, onSave }: { event: ItineraryEvent; onSave: (id: stri
           )}
         </div>
       )}
+      {event.alternatives && event.alternatives.length > 0 && (
+        <div className="event-meta">
+          Other options nearby:
+          <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+            {event.alternatives.map((alt) => (
+              <li key={alt.name}>
+                {alt.webUrl ? (
+                  <a href={alt.webUrl} target="_blank" rel="noopener noreferrer">
+                    {alt.name}
+                  </a>
+                ) : (
+                  alt.name
+                )}
+                {alt.rating ? ` — ⭐ ${alt.rating}` : ""}
+                {alt.priceLevel ? ` · ${alt.priceLevel}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {!editing && event.notes && <div className="event-meta">📝 {event.notes}</div>}
 
       {!editing && (
         <div className="event-meta">
           {formatTime(event.startTime)}
           {event.endTime ? ` – ${formatTime(event.endTime)}` : ""}{" "}
           <button className="secondary" onClick={() => setEditing(true)}>
-            Edit time
+            Edit
           </button>
         </div>
       )}
@@ -84,12 +112,19 @@ function EventCard({ event, onSave }: { event: ItineraryEvent; onSave: (id: stri
           <input type="datetime-local" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
           <label>End time</label>
           <input type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+          <label>Notes</label>
+          <textarea
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. book ahead, ask for a window seat"
+          />
           <div style={{ marginTop: "0.5rem" }}>
             <button
               disabled={saving}
               onClick={async () => {
                 setSaving(true);
-                await onSave(event.id, startTime, endTime);
+                await onSave(event.id, startTime, endTime, notes);
                 setSaving(false);
                 setEditing(false);
               }}
@@ -134,15 +169,28 @@ export default function TripDetailPage() {
     return () => clearInterval(interval);
   }, [detail, load]);
 
-  async function handleSaveEvent(id: string, startTime: string, endTime: string) {
+  async function handleSaveEvent(id: string, startTime: string, endTime: string, notes: string) {
     await apiFetch(`/events/${id}`, {
       method: "PUT",
       body: JSON.stringify({
         startTime: startTime ? new Date(startTime).toISOString() : undefined,
         endTime: endTime ? new Date(endTime).toISOString() : undefined,
+        notes: notes || undefined,
       }),
     });
     await load();
+  }
+
+  async function handleExportKml() {
+    const blob = await apiFetchBlob(`/trips/${tripId}/export.kml`);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `trip-${tripId}.kml`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   if (!ready) return null;
@@ -168,6 +216,10 @@ export default function TripDetailPage() {
       {trip.status === "READY" && (
         <>
           <div className="day-group">
+            <button className="secondary" onClick={handleExportKml}>
+              Download for Google Maps
+            </button>
+            <p className="event-meta">Import this file at mymaps.google.com to create your own Google Maps list.</p>
             <TripMap events={days.flatMap((d) => d.events)} />
           </div>
 

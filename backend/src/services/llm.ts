@@ -49,6 +49,7 @@ const ACTIVITY_BANK: Record<string, string[]> = {
   art: ["Contemporary art gallery visit", "Afternoon at the fine arts museum", "Street art walking tour"],
   nature: ["Sunrise hike at the nearest viewpoint", "Botanical garden stroll", "Riverside bike ride"],
   nightlife: ["Rooftop bar hopping", "Live music venue", "Night market visit"],
+  sports: ["Local sports match or game (check what's on)", "Guided cycling tour", "Stadium or arena tour", "Public pool, beach, or watersports session"],
   default: ["Free morning to explore on foot", "Visit to the most-reviewed local landmark", "Neighborhood walking tour"],
 };
 
@@ -153,7 +154,15 @@ function pickFromCandidates(
  */
 export const mockLlmService: LlmService = {
   async generateItinerary(input: ItineraryInput): Promise<GeneratedEvent[]> {
-    const { destinations, startDate, endDate, preferences, restaurantCandidatesByDestination, attractionCandidatesByDestination } = input;
+    const {
+      destinations,
+      startDate,
+      endDate,
+      preferences,
+      restaurantCandidatesByDestination,
+      attractionCandidatesByDestination,
+      hotelCandidatesByDestination,
+    } = input;
     const numDays = dayCount(startDate, endDate);
     const blocks = allocateDaysToDestinations(numDays, destinations);
     const events: GeneratedEvent[] = [];
@@ -162,6 +171,11 @@ export const mockLlmService: LlmService = {
       const { destination } = block;
       const restaurantCandidates = restaurantCandidatesByDestination?.[destination];
       const attractionCandidates = attractionCandidatesByDestination?.[destination];
+      // The same hotel is used for the whole stay in this destination (not
+      // re-picked per event), so take the single top-rated candidate once
+      // per block rather than per push — see pickFromCandidates(..., 0).
+      const hotelCandidate = pickFromCandidates(hotelCandidatesByDestination?.[destination], 0);
+      const hotelName = hotelCandidate?.name ?? `Central ${destination} Hotel`;
       const isFirstBlock = blockIndex === 0;
       const isLastBlock = blockIndex === blocks.length - 1;
       // Every event this block generates is tagged with its destination —
@@ -185,9 +199,9 @@ export const mockLlmService: LlmService = {
           });
           pushEvent({
             eventType: "ACCOMMODATION",
-            title: "Check-in at hotel",
-            description: "Check in and drop off luggage.",
-            locationName: `Central ${destination} Hotel`,
+            title: hotelCandidate ? `Check-in at ${hotelName}` : "Check-in at hotel",
+            description: hotelCandidate ? `${hotelName} — top-rated on TripAdvisor.` : "Check in and drop off luggage.",
+            locationName: hotelName,
             startTime: atTime(day, 15, 0),
             endTime: atTime(day, 15, 30),
           });
@@ -202,9 +216,9 @@ export const mockLlmService: LlmService = {
           });
           pushEvent({
             eventType: "ACCOMMODATION",
-            title: "Check-in at hotel",
-            description: "Check in and drop off luggage.",
-            locationName: `Central ${destination} Hotel`,
+            title: hotelCandidate ? `Check-in at ${hotelName}` : "Check-in at hotel",
+            description: hotelCandidate ? `${hotelName} — top-rated on TripAdvisor.` : "Check in and drop off luggage.",
+            locationName: hotelName,
             startTime: atTime(day, 15, 0),
             endTime: atTime(day, 15, 30),
           });
@@ -269,7 +283,7 @@ export const mockLlmService: LlmService = {
             eventType: "ACCOMMODATION",
             title: "Check-out",
             description: "Check out of hotel before departure.",
-            locationName: `Central ${destination} Hotel`,
+            locationName: hotelName,
             startTime: atTime(day, 10, 0),
             endTime: atTime(day, 10, 30),
           });
@@ -284,7 +298,7 @@ export const mockLlmService: LlmService = {
             eventType: "ACCOMMODATION",
             title: "Check-out",
             description: "Check out of hotel before traveling to the next destination.",
-            locationName: `Central ${destination} Hotel`,
+            locationName: hotelName,
             startTime: atTime(day, 10, 0),
             endTime: atTime(day, 10, 30),
           });
@@ -371,7 +385,8 @@ function formatCandidates(candidates: TripAdvisorCandidate[] | undefined): strin
 function formatDestinationSections(
   destinations: string[],
   restaurantCandidatesByDestination: Record<string, TripAdvisorCandidate[]> | undefined,
-  attractionCandidatesByDestination: Record<string, TripAdvisorCandidate[]> | undefined
+  attractionCandidatesByDestination: Record<string, TripAdvisorCandidate[]> | undefined,
+  hotelCandidatesByDestination: Record<string, TripAdvisorCandidate[]> | undefined
 ): string {
   return destinations
     .map(
@@ -380,7 +395,10 @@ Real, top-rated restaurants matching the trip's budget (from TripAdvisor) — pr
 ${formatCandidates(restaurantCandidatesByDestination?.[destination])}
 
 Real, top-rated attractions matching the trip's budget (from TripAdvisor) — prefer these exact names as "locationName" for ACTIVITY events while in ${destination}:
-${formatCandidates(attractionCandidatesByDestination?.[destination])}`
+${formatCandidates(attractionCandidatesByDestination?.[destination])}
+
+Real, top-rated hotels matching the trip's budget (from TripAdvisor) — prefer these exact names as "locationName" for every ACCOMMODATION event (check-in and check-out) while in ${destination}, using the SAME hotel for both:
+${formatCandidates(hotelCandidatesByDestination?.[destination])}`
     )
     .join("\n\n");
 }
@@ -391,7 +409,15 @@ ${formatCandidates(attractionCandidatesByDestination?.[destination])}`
  */
 export const openAiLlmService: LlmService = {
   async generateItinerary(input: ItineraryInput): Promise<GeneratedEvent[]> {
-    const { destinations, startDate, endDate, preferences, restaurantCandidatesByDestination, attractionCandidatesByDestination } = input;
+    const {
+      destinations,
+      startDate,
+      endDate,
+      preferences,
+      restaurantCandidatesByDestination,
+      attractionCandidatesByDestination,
+      hotelCandidatesByDestination,
+    } = input;
     const days = dayDateStrings(startDate, endDate);
     const model = process.env.OPENAI_MODEL ?? "gpt-4o";
     const isMultiDestination = destinations.length > 1;
@@ -442,7 +468,9 @@ ${hasChildrenTraveling
 
 For each destination, infer its actual season from the calendar dates above (accounting for hemisphere — e.g. December is winter in Europe but summer in the Southern Hemisphere) and weight activity choices toward what's weather-appropriate for that season: outdoor activities (parks, gardens, walking tours, viewpoints) when the season is warm/pleasant, indoor activities (museums, galleries, indoor markets) when it's cold, rainy, or otherwise outdoor-unfriendly.
 
-${formatDestinationSections(destinations, restaurantCandidatesByDestination, attractionCandidatesByDestination)}
+If preferences.interests includes "sports", include sport-oriented activities among the choices — a local match/game if the trip's dates and destination make one plausible, a stadium or arena tour, cycling, hiking, or a water-sports session, or another sport that's popular in that specific destination.
+
+${formatDestinationSections(destinations, restaurantCandidatesByDestination, attractionCandidatesByDestination, hotelCandidatesByDestination)}
 
 If a destination's lists don't have enough entries to fill its days, you may add other real, well-known places for that destination — but prefer the provided lists first, and copy names exactly as given (don't paraphrase them).
 

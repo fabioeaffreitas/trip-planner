@@ -27,10 +27,19 @@ describe("mockTripAdvisorService.searchTopRated", () => {
     }
   });
 
-  it("falls back to a generic list for an unknown destination", async () => {
+  it("returns no candidates for an unrecognized destination, rather than generic filler", async () => {
     const results = await mockTripAdvisorService.searchTopRated({
       destination: "Nowhereville",
       category: "attractions",
+    });
+
+    expect(results).toEqual([]);
+  });
+
+  it("matches on the city name when the destination includes a country/region suffix", async () => {
+    const results = await mockTripAdvisorService.searchTopRated({
+      destination: "Paris, France",
+      category: "restaurants",
     });
 
     expect(results.length).toBeGreaterThan(0);
