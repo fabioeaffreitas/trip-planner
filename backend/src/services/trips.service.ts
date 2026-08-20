@@ -214,6 +214,7 @@ export interface UpdateEventInput {
   startTime?: Date;
   endTime?: Date;
   notes?: string;
+  notifyWhatsapp?: boolean;
 }
 
 export async function updateEvent(userId: string, eventId: string, patch: UpdateEventInput) {
@@ -225,5 +226,16 @@ export async function updateEvent(userId: string, eventId: string, patch: Update
     throw new AppError(404, "Event not found", "EVENT_NOT_FOUND");
   }
 
-  return prisma.itineraryEvent.update({ where: { id: eventId }, data: patch });
+  // Re-enabling notifications, or moving the start time, should give the
+  // event a fresh reminder window — otherwise an event already skipped (or
+  // rescheduled past its old window) would silently never notify again,
+  // since checkAndSendReminders() only considers whatsappNotifiedAt: null.
+  const shouldResetNotification =
+    (patch.notifyWhatsapp === true && !event.notifyWhatsapp) ||
+    (patch.startTime !== undefined && patch.startTime.getTime() !== event.startTime?.getTime());
+
+  return prisma.itineraryEvent.update({
+    where: { id: eventId },
+    data: { ...patch, ...(shouldResetNotification ? { whatsappNotifiedAt: null } : {}) },
+  });
 }

@@ -9,6 +9,7 @@ const updateEventSchema = z.object({
   startTime: z.coerce.date().optional(),
   endTime: z.coerce.date().optional(),
   notes: z.string().optional(),
+  notifyWhatsapp: z.boolean().optional(),
 });
 
 export async function putEvent(req: Request, res: Response) {

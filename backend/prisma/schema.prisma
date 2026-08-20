@@ -76,6 +76,7 @@ model ItineraryEvent {
   tripAdvisorUrl         String? @map("trip_advisor_url")
   notes                  String? @map("notes")
   alternatives           Json?   @map("alternatives")
+  whatsappNotifiedAt     DateTime? @map("whatsapp_notified_at")
 
   @@index([tripId])
   @@map("itinerary_events")

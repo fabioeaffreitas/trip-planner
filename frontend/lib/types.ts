@@ -32,6 +32,13 @@ export interface ItineraryEvent {
   tripAdvisorUrl?: string | null;
   notes?: string | null;
   alternatives?: DiningAlternative[] | null;
+  whatsappNotifiedAt?: string | null;
+}
+
+export interface Me {
+  id: string;
+  email: string;
+  phoneNumber?: string | null;
 }
 
 export interface DiningAlternative {

@@ -25,6 +25,7 @@ function makeEvent(overrides: Partial<ItineraryEvent>): ItineraryEvent {
     tripAdvisorUrl: null,
     notes: null,
     alternatives: null,
+    whatsappNotifiedAt: null,
     ...overrides,
   };
 }

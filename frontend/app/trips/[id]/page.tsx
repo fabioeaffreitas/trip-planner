@@ -31,12 +31,13 @@ function EventCard({
   onSave,
 }: {
   event: ItineraryEvent;
-  onSave: (id: string, startTime: string, endTime: string, notes: string) => Promise<void>;
+  onSave: (id: string, startTime: string, endTime: string, notes: string, notifyWhatsapp: boolean) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [startTime, setStartTime] = useState(toDatetimeLocal(event.startTime));
   const [endTime, setEndTime] = useState(toDatetimeLocal(event.endTime));
   const [notes, setNotes] = useState(event.notes ?? "");
+  const [notifyWhatsapp, setNotifyWhatsapp] = useState(event.notifyWhatsapp);
   const [saving, setSaving] = useState(false);
 
   return (
@@ -95,6 +96,9 @@ function EventCard({
         </div>
       )}
       {!editing && event.notes && <div className="event-meta">📝 {event.notes}</div>}
+      {!editing && event.notifyWhatsapp && (
+        <div className="event-meta">{event.whatsappNotifiedAt ? "✅ WhatsApp reminder sent" : "🔔 WhatsApp reminder set"}</div>
+      )}
 
       {!editing && (
         <div className="event-meta">
@@ -119,12 +123,21 @@ function EventCard({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="e.g. book ahead, ask for a window seat"
           />
+          <label style={{ display: "block", fontWeight: 400, marginTop: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={notifyWhatsapp}
+              onChange={(e) => setNotifyWhatsapp(e.target.checked)}
+              style={{ width: "auto", marginRight: "0.5rem" }}
+            />
+            Remind me on WhatsApp
+          </label>
           <div style={{ marginTop: "0.5rem" }}>
             <button
               disabled={saving}
               onClick={async () => {
                 setSaving(true);
-                await onSave(event.id, startTime, endTime, notes);
+                await onSave(event.id, startTime, endTime, notes, notifyWhatsapp);
                 setSaving(false);
                 setEditing(false);
               }}
@@ -169,13 +182,14 @@ export default function TripDetailPage() {
     return () => clearInterval(interval);
   }, [detail, load]);
 
-  async function handleSaveEvent(id: string, startTime: string, endTime: string, notes: string) {
+  async function handleSaveEvent(id: string, startTime: string, endTime: string, notes: string, notifyWhatsapp: boolean) {
     await apiFetch(`/events/${id}`, {
       method: "PUT",
       body: JSON.stringify({
         startTime: startTime ? new Date(startTime).toISOString() : undefined,
         endTime: endTime ? new Date(endTime).toISOString() : undefined,
         notes: notes || undefined,
+        notifyWhatsapp,
       }),
     });
     await load();

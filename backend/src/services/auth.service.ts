@@ -17,3 +17,15 @@ export async function loginWithEmail(email: string): Promise<{ token: string; us
   const token = jwt.sign({ userId: user.id }, secret, { expiresIn: "30d" });
   return { token, userId: user.id };
 }
+
+export async function getUser(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    throw new AppError(404, "User not found", "USER_NOT_FOUND");
+  }
+  return user;
+}
+
+export async function updatePhoneNumber(userId: string, phoneNumber: string) {
+  return prisma.user.update({ where: { id: userId }, data: { phoneNumber } });
+}

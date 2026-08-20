@@ -4,7 +4,56 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { clearToken, useRequireAuth } from "@/lib/auth";
-import type { Trip } from "@/lib/types";
+import type { Me, Trip } from "@/lib/types";
+
+function WhatsAppSettings() {
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ user: Me }>("/auth/me").then((data) => {
+      if (data.user.phoneNumber) setPhoneNumber(data.user.phoneNumber);
+    });
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await apiFetch("/auth/me", { method: "PUT", body: JSON.stringify({ phoneNumber }) });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to save phone number");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="field" style={{ marginBottom: "1.5rem" }}>
+      <label>WhatsApp number (for event reminders)</label>
+      <input
+        type="tel"
+        placeholder="+15551234567"
+        value={phoneNumber}
+        onChange={(e) => {
+          setPhoneNumber(e.target.value);
+          setSaved(false);
+        }}
+      />
+      <div style={{ marginTop: "0.5rem" }}>
+        <button className="secondary" onClick={handleSave} disabled={saving || !phoneNumber}>
+          {saving ? "Saving..." : "Save"}
+        </button>{" "}
+        {saved && <span className="event-meta">Saved.</span>}
+        {error && <span className="error-text">{error}</span>}
+      </div>
+    </div>
+  );
+}
 
 export default function TripsPage() {
   const { ready } = useRequireAuth();
@@ -36,6 +85,8 @@ export default function TripsPage() {
           Sign out
         </button>
       </div>
+
+      <WhatsAppSettings />
 
       <Link href="/trips/new">
         <button>New trip</button>
